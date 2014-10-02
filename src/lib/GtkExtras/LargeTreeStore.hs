@@ -1,39 +1,11 @@
-{-# LANGUAGE CPP #-}
--- -*-haskell-*-
---  GIMP Toolkit (GTK) CustomStore TreeModel
---
---  Author : Duncan Coutts, Axel Simon, Sarunas Valaskevicius
---
---  Created: 11 Feburary 2006
---  Reimplemented using nested sets: 28 September 2014
---
---  Copyright (C) 2005 Duncan Coutts, Axel Simon
---  Copyright (C) 2014 Sarunas Valaskevicius
---
---  This library is free software; you can redistribute it and/or
---  modify it under the terms of the GNU Lesser General Public
---  License as published by the Free Software Foundation; either
---  version 2.1 of the License, or (at your option) any later version.
---
---  This library is distributed in the hope that it will be useful,
---  but WITHOUT ANY WARRANTY; without even the implied warranty of
---  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
---  Lesser General Public License for more details.
---
--- |
--- Stability   : provisional
--- Portability : portable (depends on GHC)
---
--- Standard model to store hierarchical data.
---
 module GtkExtras.LargeTreeStore (
-{-
 -- * Types
   TreeStore,
 
 -- * Constructors
   treeStoreNew,
   treeStoreNewDND,
+{-
 
 -- * Implementation of Interfaces
   treeStoreDefaultDragSourceIface,
@@ -41,7 +13,9 @@ module GtkExtras.LargeTreeStore (
 
 -- * Methods
   treeStoreGetValue,
+  -}
   treeStoreGetTree,
+  {-
   treeStoreLookup,
 
   treeStoreSetValue,
@@ -57,22 +31,38 @@ module GtkExtras.LargeTreeStore (
   treeStoreChangeM,
   -}
   ) where
-{-
-import Data.Bits
-import Data.Word (Word)
-import Data.Maybe ( fromMaybe, isJust )
 import Data.Tree
-import Control.Monad ( liftM, when )
-import Control.Exception (assert)
-import Data.IORef
--- import Graphics.UI.Gtk.ModelView.Types
--- import Graphics.UI.Gtk.Types (GObjectClass(..), TreeModelClass)
 import System.Glib.GObject
 import Graphics.UI.Gtk.ModelView.CustomStore
 import Graphics.UI.Gtk.ModelView.TreeModel
 import Graphics.UI.Gtk.ModelView.TreeDrag
+import Data.IORef
 import Control.Monad.Trans ( liftIO )
-import Foreign.C.Types (CInt(..))
+
+
+-- | A store for hierarchical data.
+--
+newtype TreeStore a = TreeStore (CustomStore (IORef (Store a)) a)
+
+
+instance TypedTreeModelClass TreeStore
+instance TreeModelClass (TreeStore a)
+instance GObjectClass (TreeStore a) where
+  toGObject (TreeStore tm) = toGObject tm
+  unsafeCastGObject = TreeStore . unsafeCastGObject
+
+data Store a = Store {
+}
+
+-- import Foreign.C.Types (CInt(..))
+{-
+import Data.Bits
+import Data.Word (Word)
+import Data.Maybe ( fromMaybe, isJust )
+import Control.Monad ( liftM, when )
+import Control.Exception (assert)
+-- import Graphics.UI.Gtk.ModelView.Types
+-- import Graphics.UI.Gtk.Types (GObjectClass(..), TreeModelClass)
 
 --------------------------------------------
 -- internal model data types
@@ -82,21 +72,8 @@ import Foreign.C.Types (CInt(..))
 treeIterSetStamp :: TreeIter -> CInt -> TreeIter
 treeIterSetStamp (TreeIter _ a b c) s = (TreeIter s a b c)
 
--- | A store for hierarchical data.
---
-newtype TreeStore a = TreeStore (CustomStore (IORef (Store a)) a)
 
-instance TypedTreeModelClass TreeStore
-instance TreeModelClass (TreeStore a)
-instance GObjectClass (TreeStore a) where
-  toGObject (TreeStore tm) = toGObject tm
-  unsafeCastGObject = TreeStore . unsafeCastGObject
-
-data Store a = Store {
-  capacity :: Capacity,
-  content :: Cache a
-}
-
+-}
 -- | Create a new list store.
 --
 -- * The given rose tree determines the initial content and may be the empty
@@ -118,62 +95,39 @@ treeStoreNewDND :: Forest a -- ^ the inital tree stored in this model
   -> IO (TreeStore a)
 treeStoreNewDND forest mDSource mDDest = do
   storeRef <- newIORef Store {
-      capacity = calcForestCapacity forest,
-      content = storeToCache forest
-    }
+  }
   let withStore f = readIORef storeRef >>= return . f
+{-
       withStoreUpdateCache f = do
         store <- readIORef storeRef
         let (result, cache') = f store
         writeIORef storeRef store { content = cache' }
         return result
-
+-}
   customStoreNew storeRef TreeStore TreeModelIface {
     treeModelIfaceGetFlags = return [],
 
-    treeModelIfaceGetIter = \path -> withStore $
-      \Store { capacity = c } -> fromPath c path,
+    treeModelIfaceGetIter = \path -> undefined,
 
-    treeModelIfaceGetPath = \iter -> withStore $
-      \Store { capacity = c } -> toPath c iter,
+    treeModelIfaceGetPath = \iter -> undefined,
 
-    treeModelIfaceGetRow  = \iter -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } ->
-        case checkSuccess c iter cache of
-          (True, cache'@((_, (Node { rootLabel = val }:_)):_)) ->
-            (val, cache')
-          _ -> error "TreeStore.getRow: iter does not refer to a valid entry",
+    treeModelIfaceGetRow  = \iter -> undefined,
 
-    treeModelIfaceIterNext = \iter -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } -> iterNext c iter cache,
+    treeModelIfaceIterNext = \iter -> undefined,
 
-    treeModelIfaceIterChildren = \mIter -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } ->
-      let iter = fromMaybe invalidIter mIter
-       in iterNthChild c 0 iter cache,
+    treeModelIfaceIterChildren = \mIter -> undefined,
 
-    treeModelIfaceIterHasChild = \iter -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } ->
-       let (mIter, cache') = iterNthChild c 0 iter cache
-        in (isJust mIter, cache'),
+    treeModelIfaceIterHasChild = \iter -> undefined,
 
-    treeModelIfaceIterNChildren = \mIter -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } ->
-      let iter = fromMaybe invalidIter mIter
-       in iterNChildren c iter cache,
+    treeModelIfaceIterNChildren = \mIter -> undefined,
 
-    treeModelIfaceIterNthChild = \mIter idx  -> withStoreUpdateCache $
-      \Store { capacity = c, content = cache } ->
-      let iter = fromMaybe invalidIter mIter
-       in iterNthChild c idx iter cache,
+    treeModelIfaceIterNthChild = \mIter idx  -> undefined,
 
-    treeModelIfaceIterParent = \iter -> withStore $
-      \Store { capacity = c } -> iterParent c iter,
+    treeModelIfaceIterParent = \iter -> undefined,
 
     treeModelIfaceRefNode = \_ -> return (),
     treeModelIfaceUnrefNode = \_ -> return ()
    } mDSource mDDest
-
 
 -- | Default drag functions for
 -- 'Graphics.UI.Gtk.ModelView.TreeStore'. These functions allow the rows of
@@ -208,95 +162,26 @@ treeStoreDefaultDragDestIface = DragDestIface {
         Just (model', source@(_:_)) ->
           if toTreeModel model/=toTreeModel model' then return False
           else liftIO $ do
-            row <- treeStoreGetTree model source
-            treeStoreInsertTree model (init dest) (last dest) row
+--            row <- treeStoreGetTree model source
+--            treeStoreInsertTree model (init dest) (last dest) row
             return True
   }
 
---------------------------------------------
--- low level bit-twiddling utility functions
---
-
--- TODO: figure out how these things work when Word is 64 bits
-
-bitsNeeded :: Word -> Int
-bitsNeeded n = bitsNeeded' 0 n
-  where bitsNeeded' b 0 = b
-        bitsNeeded' b n = bitsNeeded' (b+1) (n `shiftR` 1)
-
-getBitSlice :: TreeIter -> Int -> Int -> Word
-getBitSlice (TreeIter _ a b c) off count =
-      getBitSliceWord a  off     count
-  .|. getBitSliceWord b (off-32) count
-  .|. getBitSliceWord c (off-64) count
-
-  where getBitSliceWord :: Word -> Int -> Int -> Word
-        getBitSliceWord word off count =
-          word `shiftR` off .&. (1 `shiftL` count - 1)
-
-setBitSlice :: TreeIter -> Int -> Int -> Word -> TreeIter
-setBitSlice (TreeIter stamp a b c) off count value =
-  assert (value < 1 `shiftL` count) $
-  TreeIter stamp
-           (setBitSliceWord a  off     count value)
-           (setBitSliceWord b (off-32) count value)
-           (setBitSliceWord c (off-64) count value)
-
-  where setBitSliceWord :: Word -> Int -> Int -> Word -> Word
-        setBitSliceWord word off count value =
-          let mask = (1 `shiftL` count - 1) `shiftL` off
-           in (word .&. complement mask) .|. (value `shiftL` off)
-
-
-iterPrefixEqual :: TreeIter -> TreeIter -> Int -> Bool
-iterPrefixEqual (TreeIter _ a1 b1 c1) (TreeIter _ a2 b2 c2) pos
-  | pos>64 = let mask = 1 `shiftL` (pos-64) - 1 in
-             a1==a2 && b1==b2 && (c1 .&. mask) == (c2 .&. mask)
-  | pos>32 = let mask = 1 `shiftL` (pos-32) - 1 in
-             a1==a2 && (b1 .&. mask) == (b2 .&. mask)
-  | otherwise = let mask = 1 `shiftL` pos - 1 in
-                (a1 .&. mask) == (a2 .&. mask)
-
+{-
 -- | The invalid tree iterator.
 --
 invalidIter :: TreeIter
 invalidIter = TreeIter 0 0 0 0
 
-showIterBits (TreeIter _ a b c) = [showBits a, showBits b, showBits c]
-
-showBits :: Bits a => a -> String
-showBits a = [ if testBit a i then '1' else '0' | i <- [0..bitSize a - 1] ]
-
--- | Calculate the number of nodes on a per-level basis.
---
-calcForestCapacity :: Forest a -> Capacity
-calcForestCapacity f = map bitsNeeded $
-                    takeWhile (/=0) $
-                    foldr calcTreeCapacity (repeat 0) f
-  where
-  calcTreeCapacity Node { subForest = f } (d:ds) =
-      (d+1): zipWith max ds (foldr calcTreeCapacity (repeat 0) f)
-
-
 -- | Convert an iterator into a path.
 --
 toPath :: Capacity -> TreeIter -> TreePath
-toPath d iter = gP 0 d
-  where
-  gP pos [] = []
-  gP pos (d:ds) = let idx = getBitSlice iter pos d in
-                  if idx==0 then [] else fromIntegral (idx-1) : gP (pos+d) ds
+toPath d iter = Nothing
 
 -- | Try to convert a path into a 'TreeIter'.
 --
 fromPath :: Capacity -> TreePath -> Maybe TreeIter
-fromPath = fP 0 invalidIter
-  where
-  fP pos ti _ [] = Just ti -- the remaining bits are zero anyway
-  fP pos ti [] _ = Nothing
-  fP pos ti (d:ds) (p:ps) = let idx = fromIntegral (p+1) :: Word in
-    if idx >= bit d then Nothing else
-    fP (pos+d) (setBitSlice ti pos d idx) ds ps
+fromPath _ = Nothing
 
 
 -- | The 'Cache' type synonym is only used iternally. What it represents
@@ -538,7 +423,7 @@ insertIntoForest forest nodes (p:ps) pos = case splitAt p forest of
       Just (for, pos, toggle) -> Just (prev++Node { rootLabel = val,
                                                     subForest = for }:next,
                                        pos, toggle)
-
+-}
 -- | Remove a node from the store.
 --
 -- * The node denoted by the path is removed, along with all its children.
@@ -550,22 +435,18 @@ treeStoreRemove (TreeStore model) [] = return False
 treeStoreRemove (TreeStore model) path = do
   customStoreInvalidateIters model
   (found, toggle) <- atomicModifyIORef (customStoreGetPrivate model) $
-    \store@Store { capacity = c, content = cache } ->
-    if null cache then (store, (False, False)) else
-    case deleteFromForest (cacheToStore cache) path of
-      Nothing -> (store, (False, False))
-      Just (newForest, toggle) ->
-        (Store { capacity = c, -- this might be a space leak
-                 content = storeToCache newForest }, (True, toggle))
+    \store -> (store, (False, False))
+    {-
   when found $ do
     when (toggle && not (null path)) $ do
-      Store { capacity = capacity } <- readIORef (customStoreGetPrivate model)
+      store <- readIORef (customStoreGetPrivate model)
       let parent = init path
           Just iter = fromPath capacity parent
       treeModelRowHasChildToggled model parent iter
     treeModelRowDeleted model path
+    -}
   return found
-
+{-
 treeStoreClear :: TreeStore a -> IO ()
 treeStoreClear (TreeStore model) = do
   customStoreInvalidateIters model
@@ -663,22 +544,15 @@ changeForest forest act (p:ps) = case splitAt p forest of
 treeStoreGetValue :: TreeStore a -> TreePath -> IO a
 treeStoreGetValue model path = fmap rootLabel (treeStoreGetTree model path)
 
+-}
 -- | Extract a subtree from the current model. Fails if the given
 --   'TreePath' refers to a non-existent node.
 --
 treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
 treeStoreGetTree (TreeStore model) path = do
-  store@Store { capacity = c, content = cache } <-
-      readIORef (customStoreGetPrivate model)
-  case fromPath c path of
-    (Just iter) -> do
-      let (res, cache') = checkSuccess c iter cache
-      writeIORef (customStoreGetPrivate model) store { content = cache' }
-      case cache' of
-        ((_,node:_):_) | res -> return node
-        _ -> fail ("treeStoreGetTree: path does not exist " ++ show path)
-    _ -> fail ("treeStoreGetTree: path does not exist " ++ show path)
+    fail ("treeStoreGetTree: path does not exist " ++ show path)
 
+{-
 -- | Extract a subtree from the current model. Like 'treeStoreGetTree'
 --   but returns @Nothing@ if the path refers to a non-existant node.
 --
