@@ -5,7 +5,6 @@ module GtkExtras.LargeTreeStore (
 -- * Constructors
   treeStoreNew,
   treeStoreNewDND,
-{-
 
 -- * Implementation of Interfaces
   treeStoreDefaultDragSourceIface,
@@ -13,9 +12,8 @@ module GtkExtras.LargeTreeStore (
 
 -- * Methods
   treeStoreGetValue,
-  -}
+{-
   treeStoreGetTree,
-  {-
   treeStoreLookup,
 
   treeStoreSetValue,
@@ -38,6 +36,7 @@ import Graphics.UI.Gtk.ModelView.TreeModel
 import Graphics.UI.Gtk.ModelView.TreeDrag
 import Data.IORef
 import Control.Monad.Trans ( liftIO )
+import Data.NestedSet
 
 
 -- | A store for hierarchical data.
@@ -52,6 +51,7 @@ instance GObjectClass (TreeStore a) where
   unsafeCastGObject = TreeStore . unsafeCastGObject
 
 data Store a = Store {
+    nestedSets :: NestedSets a
 }
 
 -- import Foreign.C.Types (CInt(..))
@@ -95,6 +95,7 @@ treeStoreNewDND :: Forest a -- ^ the inital tree stored in this model
   -> IO (TreeStore a)
 treeStoreNewDND forest mDSource mDDest = do
   storeRef <- newIORef Store {
+      nestedSets = forestToNestedSets forest
   }
   let withStore f = readIORef storeRef >>= return . f
 {-
@@ -538,13 +539,23 @@ changeForest forest act (p:ps) = case splitAt p forest of
         Just for -> return $ Just (prev++Node { rootLabel = val,
                                                 subForest = for }:next)
 
+-}
 -- | Extract one node from the current model. Fails if the given
 --   'TreePath' refers to a non-existent node.
 --
 treeStoreGetValue :: TreeStore a -> TreePath -> IO a
-treeStoreGetValue model path = fmap rootLabel (treeStoreGetTree model path)
+treeStoreGetValue (TreeStore model) path = do
+    store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    return $ nestedSetValueByPath sets $ zeroIndexedPath path
+    where nestedSetValueByPath a b = content $ nestedSetByPath a b
+          nestedSetByPath sets [] = undefined
+          nestedSetByPath sets (p:ds) = nestedSetChildrenByPath (sets!!p) ds
+          nestedSetChildrenByPath set ([]) = set
+          nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath ((children set)!!p) ds
+          zeroIndexedPath = fmap (subtract 1) 
 
--}
+
+{-
 -- | Extract a subtree from the current model. Fails if the given
 --   'TreePath' refers to a non-existent node.
 --
@@ -552,7 +563,6 @@ treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
 treeStoreGetTree (TreeStore model) path = do
     fail ("treeStoreGetTree: path does not exist " ++ show path)
 
-{-
 -- | Extract a subtree from the current model. Like 'treeStoreGetTree'
 --   but returns @Nothing@ if the path refers to a non-existant node.
 --
