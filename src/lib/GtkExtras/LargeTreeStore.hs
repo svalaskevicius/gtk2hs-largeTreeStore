@@ -14,21 +14,15 @@ module GtkExtras.LargeTreeStore (
   treeStoreGetValue,
   treeStoreSetValue,
 
-{-
-  treeStoreGetTree,
-  treeStoreLookup,
+  treeStoreChange,
+  treeStoreChangeM,
 
-
+  treeStoreInsertForest,
   treeStoreInsert,
   treeStoreInsertTree,
-  treeStoreInsertForest,
 
   treeStoreRemove,
   treeStoreClear,
-
-  treeStoreChange,
-  treeStoreChangeM,
-  -}
   ) where
 import Data.Tree
 import System.Glib.GObject
@@ -337,7 +331,7 @@ iterParent capacity iter = let
   in if pos==0 then Nothing else
      if getBitSlice iter pos leaf==0 then Nothing else
      Just (setBitSlice iter pos leaf 0)
-
+-}
 -- | Insert nodes into the store.
 --
 -- * The given list of nodes is inserted into given parent at @pos@.
@@ -353,32 +347,30 @@ treeStoreInsertForest ::
  -> Forest a    -- ^ the list of trees to be inserted
  -> IO ()
 treeStoreInsertForest (TreeStore model) path pos nodes = do
-  customStoreInvalidateIters model
-  (idx, toggle) <- atomicModifyIORef (customStoreGetPrivate model) $
-    \store@Store { capacity = c, content = cache } ->
-    case insertIntoForest (cacheToStore cache) nodes path pos of
-      Nothing -> error ("treeStoreInsertForest: path does not exist " ++ show path)
-      Just (newForest, idx, toggle) ->
-       let capacity = calcForestCapacity newForest
-        in (Store { capacity = capacity,
-                    content = storeToCache newForest },
-           (idx, toggle))
-  Store { capacity = capacity } <- readIORef (customStoreGetPrivate model)
-  let rpath = reverse path
-  stamp <- customStoreGetStamp model
-  sequence_ [ let p' = reverse p
-                  Just iter = fromPath capacity p'
-               in treeModelRowInserted model p' (treeIterSetStamp iter stamp)
-            | (i, node) <- zip [idx..] nodes
-            , p <- paths (i : rpath) node ]
-  let Just iter = fromPath capacity path
-  when toggle $ treeModelRowHasChildToggled model path
-                (treeIterSetStamp iter stamp)
+    customStoreInvalidateIters model
+    (idx, toggle) <- atomicModifyIORef (customStoreGetPrivate model) $
+        \store@Store { nestedSets = sets } ->
+        case insertIntoForest (nestedSetsToForest sets) nodes path pos of
+            Nothing -> error ("treeStoreInsertForest: path does not exist " ++ show path)
+            Just (newForest, idx, toggle) -> (Store { nestedSets = forestToNestedSets newForest }, (idx, toggle))
+    return ()
+{-
+    Store { capacity = capacity } <- readIORef (customStoreGetPrivate model)
+    let rpath = reverse path
+    stamp <- customStoreGetStamp model
+    sequence_ [ let p' = reverse p
+                    Just iter = fromPath capacity p'
+                in treeModelRowInserted model p' (treeIterSetStamp iter stamp)
+              | (i, node) <- zip [idx..] nodes
+              , p <- paths (i : rpath) node ]
+    let Just iter = fromPath capacity path
+    when toggle $ treeModelRowHasChildToggled model path
+                  (treeIterSetStamp iter stamp)
 
-  where paths :: TreePath -> Tree a -> [TreePath]
-        paths path Node { subForest = ts } =
-          path : concat [ paths (n:path) t | (n, t) <- zip [0..] ts ]
-
+    where paths :: TreePath -> Tree a -> [TreePath]
+          paths path Node { subForest = ts } =
+              path : concat [ paths (n:path) t | (n, t) <- zip [0..] ts ]
+-}
 -- | Insert a node into the store.
 --
 treeStoreInsertTree ::
@@ -425,19 +417,19 @@ insertIntoForest forest nodes (p:ps) pos = case splitAt p forest of
       Just (for, pos, toggle) -> Just (prev++Node { rootLabel = val,
                                                     subForest = for }:next,
                                        pos, toggle)
--}
+
 -- | Remove a node from the store.
 --
 -- * The node denoted by the path is removed, along with all its children.
 --   The function returns @True@ if the given node was found.
---
 treeStoreRemove :: TreeStore a -> TreePath -> IO Bool
-  --TODO: eliminate this special case without segfaulting!
-treeStoreRemove (TreeStore model) [] = return False
 treeStoreRemove (TreeStore model) path = do
   customStoreInvalidateIters model
   (found, toggle) <- atomicModifyIORef (customStoreGetPrivate model) $
-    \store -> (store, (False, False))
+    \store -> case deleteFromNestedSets (nestedSets store) path of
+        Nothing -> (store, (False, False))
+        Just (sets, toggle) -> (store{nestedSets = sets}, (True, toggle))
+        
     {-
   when found $ do
     when (toggle && not (null path)) $ do
@@ -448,39 +440,34 @@ treeStoreRemove (TreeStore model) path = do
     treeModelRowDeleted model path
     -}
   return found
-{-
+
+
 treeStoreClear :: TreeStore a -> IO ()
 treeStoreClear (TreeStore model) = do
-  customStoreInvalidateIters model
-  Store { content = cache } <- readIORef (customStoreGetPrivate model)
-  let forest = cacheToStore cache
-  writeIORef (customStoreGetPrivate model) Store {
-      capacity = calcForestCapacity [],
-      content = storeToCache []
-    }
-  let loop (-1) = return ()
-      loop   n  = treeModelRowDeleted model [n] >> loop (n-1)
-  loop (length forest - 1)
+    customStoreInvalidateIters model
+    -- Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    writeIORef (customStoreGetPrivate model) Store {
+        nestedSets = forestToNestedSets []
+        }
+--    let loop (-1) = return ()
+  --      loop   n  = treeModelRowDeleted model [n] >> loop (n-1)
+    --loop (length forest - 1)
 
 -- | Remove a node from a rose tree.
 --
 -- * Returns the new tree if the node was found. The returned flag is
 --   @True@ if deleting the node left the parent without any children.
 --
-deleteFromForest :: Forest a -> TreePath -> Maybe (Forest a, Bool)
-deleteFromForest forest [] = Just ([], False)
-deleteFromForest forest (p:ps) =
-  case splitAt p forest of
-    (prev, kill@Node { rootLabel = val,
-                       subForest = for}:next) ->
-      if null ps then Just (prev++next, null prev && null next) else
-      case deleteFromForest for ps of
-        Nothing -> Nothing
-        Just (for,toggle) -> Just (prev++Node {rootLabel = val,
-                                               subForest = for }:next, toggle)
-    (prev, []) -> Nothing
+deleteFromNestedSets :: NestedSets a -> TreePath -> Maybe (NestedSets a, Bool)
+deleteFromNestedSets sets [] = Nothing
+deleteFromNestedSets sets (p:ps) = case splitAt p sets of
+    (_, []) -> Nothing
+    (prev, node@NestedSetsNode{children = subSets}:next) ->
+        if null ps then Just (prev++next, null prev && null next) else
+        case deleteFromNestedSets subSets ps of
+            Nothing -> Nothing
+            Just (subSets, toggle) -> Just (prev++node{children=subSets}:next, toggle)
 
--}
 -- | Set a node in the store.
 --
 treeStoreSetValue :: TreeStore a -> TreePath -> a -> IO ()
@@ -519,7 +506,7 @@ treeStoreChangeM (TreeStore model) path act = do
 changeNestedSets :: NestedSets a -> (a -> IO a) -> TreePath -> IO (Maybe (NestedSets a))
 changeNestedSets sets act [] = return Nothing
 changeNestedSets sets act (p:ps) = case splitAt p sets of
-    (prev, []) -> return Nothing
+    (_, []) -> return Nothing
     (prev, node : next) -> do
         node' <- (if null ps then updateLeaf else updateBranch) node
         return $ fmap (mergeNode prev next) node'
@@ -547,28 +534,3 @@ treeStoreGetValue (TreeStore model) path = do
           nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath ((children set)!!p) ds
 
 
-{-
--- | Extract a subtree from the current model. Fails if the given
---   'TreePath' refers to a non-existent node.
---
-treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
-treeStoreGetTree (TreeStore model) path = do
-    fail ("treeStoreGetTree: path does not exist " ++ show path)
-
--- | Extract a subtree from the current model. Like 'treeStoreGetTree'
---   but returns @Nothing@ if the path refers to a non-existant node.
---
-treeStoreLookup :: TreeStore a -> TreePath -> IO (Maybe (Tree a))
-treeStoreLookup (TreeStore model) path = do
-  store@Store { capacity = c, content = cache } <-
-      readIORef (customStoreGetPrivate model)
-  case fromPath c path of
-    (Just iter) -> do
-      let (res, cache') = checkSuccess c iter cache
-      writeIORef (customStoreGetPrivate model) store { content = cache' }
-      case cache' of
-        ((_,node:_):_) | res -> return (Just node)
-        _ -> return Nothing
-    _ -> return Nothing
-
--}
