@@ -12,11 +12,12 @@ module GtkExtras.LargeTreeStore (
 
 -- * Methods
   treeStoreGetValue,
+  treeStoreSetValue,
+
 {-
   treeStoreGetTree,
   treeStoreLookup,
 
-  treeStoreSetValue,
 
   treeStoreInsert,
   treeStoreInsertTree,
@@ -37,7 +38,7 @@ import Graphics.UI.Gtk.ModelView.TreeDrag
 import Data.IORef
 import Control.Monad.Trans ( liftIO )
 import Data.NestedSet
-
+import Control.Monad ( when )
 
 -- | A store for hierarchical data.
 --
@@ -479,7 +480,7 @@ deleteFromForest forest (p:ps) =
                                                subForest = for }:next, toggle)
     (prev, []) -> Nothing
 
-
+-}
 -- | Set a node in the store.
 --
 treeStoreSetValue :: TreeStore a -> TreePath -> a -> IO ()
@@ -491,7 +492,6 @@ treeStoreSetValue store path value = treeStoreChangeM store path (\_ -> return v
 --
 -- * Returns @True@ if the node was found. For a monadic version, see
 --   'treeStoreChangeM'.
---
 treeStoreChange :: TreeStore a -> TreePath -> (a -> a) -> IO Bool
 treeStoreChange store path func = treeStoreChangeM store path (return . func)
 
@@ -500,59 +500,51 @@ treeStoreChange store path func = treeStoreChangeM store path (return . func)
 --
 -- * Returns @True@ if the node was found. For a purely functional version, see
 --   'treeStoreChange'.
---
 treeStoreChangeM :: TreeStore a -> TreePath -> (a -> IO a) -> IO Bool
 treeStoreChangeM (TreeStore model) path act = do
-  customStoreInvalidateIters model
-  store@Store { capacity = c, content = cache } <-
-      readIORef (customStoreGetPrivate model)
-  (store'@Store { capacity = c, content = cache }, found) <- do
-    mRes <- changeForest (cacheToStore cache) act path
-    return $ case mRes of
-      Nothing -> (store, False)
-      Just newForest -> (Store { capacity = c,
-                                 content = storeToCache newForest }, True)
-  writeIORef (customStoreGetPrivate model) store'
-  let Just iter = fromPath c path
-  stamp <- customStoreGetStamp model
-  when found $ treeModelRowChanged model path (treeIterSetStamp iter stamp)
-  return found
+    customStoreInvalidateIters model
+    store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    (store'@Store {  nestedSets = sets }, found) <- do
+        mRes <- changeNestedSets sets act path
+        return $ case mRes of
+            Nothing -> (store, False)
+            Just sets' -> (Store { nestedSets = sets' }, True)
+    when found $ writeIORef (customStoreGetPrivate model) store'
+--    let Just iter = fromPath c path
+--    stamp <- customStoreGetStamp model
+--    when found $ treeModelRowChanged model path (treeIterSetStamp iter stamp)
+    return found
 
--- | Change a node in the forest.
---
--- * Returns @True@ if the given node was found.
---
-changeForest :: Forest a -> (a -> IO a) -> TreePath -> IO (Maybe (Forest a))
-changeForest forest act [] = return Nothing
-changeForest forest act (p:ps) = case splitAt p forest of
-  (prev, []) -> return Nothing
-  (prev, Node { rootLabel = val,
-                subForest = for}:next) ->
-    if null ps then do
-      val' <- act val
-      return (Just (prev++Node { rootLabel = val',
-                                 subForest = for }:next))
-    else do
-      mFor <- changeForest for act ps
-      case mFor of
-        Nothing -> return Nothing
-        Just for -> return $ Just (prev++Node { rootLabel = val,
-                                                subForest = for }:next)
+-- | Change a node in the 'NestedSets'.
+changeNestedSets :: NestedSets a -> (a -> IO a) -> TreePath -> IO (Maybe (NestedSets a))
+changeNestedSets sets act [] = return Nothing
+changeNestedSets sets act (p:ps) = case splitAt p sets of
+    (prev, []) -> return Nothing
+    (prev, node : next) -> do
+        node' <- (if null ps then updateLeaf else updateBranch) node
+        return $ fmap (mergeNode prev next) node'
+    where updateLeaf node@NestedSetsNode{content = val} = do
+              val' <- act val
+              return . Just $ node{content = val'}
+          updateBranch node@NestedSetsNode{children = subSets} = do
+              subSets' <- changeNestedSets subSets act ps
+              case subSets' of
+                  Nothing -> return Nothing
+                  Just subSets -> return . Just $ node{children = subSets}
+          mergeNode prev next node = prev ++ node : next
 
--}
+
 -- | Extract one node from the current model. Fails if the given
 --   'TreePath' refers to a non-existent node.
---
 treeStoreGetValue :: TreeStore a -> TreePath -> IO a
 treeStoreGetValue (TreeStore model) path = do
     store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
-    return $ nestedSetValueByPath sets $ zeroIndexedPath path
+    return $ nestedSetValueByPath sets path
     where nestedSetValueByPath a b = content $ nestedSetByPath a b
           nestedSetByPath sets [] = undefined
           nestedSetByPath sets (p:ds) = nestedSetChildrenByPath (sets!!p) ds
           nestedSetChildrenByPath set ([]) = set
           nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath ((children set)!!p) ds
-          zeroIndexedPath = fmap (subtract 1) 
 
 
 {-
