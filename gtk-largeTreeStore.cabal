@@ -39,5 +39,5 @@ test-suite spec
   main-is:
       Spec.hs
   other-modules:
-  build-depends:        base >= 4.6.0.0, gtk-largeTreeStore, hspec >= 1.11.4, containers >= 0.5.5.0
+  build-depends:        base >= 4.6.0.0, gtk-largeTreeStore, hspec >= 1.11.4, containers >= 0.5.5.0, gtk3 >= 0.13.0.0
 

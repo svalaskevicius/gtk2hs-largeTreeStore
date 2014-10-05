@@ -24,6 +24,7 @@ module GtkExtras.LargeTreeStore (
   treeStoreRemove,
   treeStoreClear,
   ) where
+
 import Data.Tree
 import System.Glib.GObject
 import Graphics.UI.Gtk.ModelView.CustomStore
@@ -33,6 +34,7 @@ import Data.IORef
 import Control.Monad.Trans ( liftIO )
 import Data.NestedSet
 import Control.Monad ( when )
+import Foreign.C.Types (CInt(..))
 
 -- | A store for hierarchical data.
 --
@@ -49,10 +51,8 @@ data Store a = Store {
     nestedSets :: NestedSets a
 }
 
--- import Foreign.C.Types (CInt(..))
 {-
 import Data.Bits
-import Data.Word (Word)
 import Data.Maybe ( fromMaybe, isJust )
 import Control.Monad ( liftM, when )
 import Control.Exception (assert)
@@ -63,9 +63,6 @@ import Control.Exception (assert)
 -- internal model data types
 --
 
--- update the stamp of a tree iter
-treeIterSetStamp :: TreeIter -> CInt -> TreeIter
-treeIterSetStamp (TreeIter _ a b c) s = (TreeIter s a b c)
 
 
 -}
@@ -93,13 +90,7 @@ treeStoreNewDND forest mDSource mDDest = do
       nestedSets = forestToNestedSets forest
   }
   let withStore f = readIORef storeRef >>= return . f
-{-
-      withStoreUpdateCache f = do
-        store <- readIORef storeRef
-        let (result, cache') = f store
-        writeIORef storeRef store { content = cache' }
-        return result
--}
+
   customStoreNew storeRef TreeStore TreeModelIface {
     treeModelIfaceGetFlags = return [],
 
@@ -107,7 +98,7 @@ treeStoreNewDND forest mDSource mDDest = do
 
     treeModelIfaceGetPath = \iter -> undefined,
 
-    treeModelIfaceGetRow  = \iter -> undefined,
+    treeModelIfaceGetRow  = \iter -> withStore $ getIterValueInStore iter,
 
     treeModelIfaceIterNext = \iter -> undefined,
 
@@ -163,23 +154,37 @@ treeStoreDefaultDragDestIface = DragDestIface {
             return True
   }
 
-{-
 -- | The invalid tree iterator.
 --
 invalidIter :: TreeIter
 invalidIter = TreeIter 0 0 0 0
 
+-- update the stamp of a tree iter
+treeIterSetStamp :: TreeIter -> CInt -> TreeIter
+treeIterSetStamp (TreeIter _ a b c) s = (TreeIter s a b c)
+
 -- | Convert an iterator into a path.
 --
-toPath :: Capacity -> TreeIter -> TreePath
-toPath d iter = Nothing
+toPath :: NestedSets a -> TreeIter -> TreePath
+toPath sets iter = positionToPath sets (positionFromIter iter) 0
+    where positionToPath [] _ _ = []
+          positionToPath (first : ds) pos nr
+              | position first == pos = [nr]
+              | isNestedSetsPositionParent (position first) pos = nr:(positionToPath (children first) pos 0)
+              | otherwise = positionToPath ds pos (nr+1)
+          positionFromIter (TreeIter _ _ left right) = ((fromIntegral left), (fromIntegral right))
 
 -- | Try to convert a path into a 'TreeIter'.
 --
-fromPath :: Capacity -> TreePath -> Maybe TreeIter
-fromPath _ = Nothing
+fromPath :: NestedSets a -> TreePath -> Maybe TreeIter
+fromPath sets = Just . (setPositionToIter invalidIter) . positionFromPath sets
+    where positionFromPath sets path = position $ nestedSetByPath sets path
+          setPositionToIter (TreeIter stamp a _ _) (left, right) = TreeIter stamp a (fromIntegral left) (fromIntegral right)
 
+getIterValueInStore :: TreeIter -> Store a -> a
+getIterValueInStore iter (Store{nestedSets = sets}) = content . (nestedSetByPath sets) . toPath sets $ iter
 
+{-
 -- | The 'Cache' type synonym is only used iternally. What it represents
 --   the stack during a (fictional) lookup operations.
 --   The topmost frame is the node
@@ -429,7 +434,7 @@ treeStoreRemove (TreeStore model) path = do
     \store -> case deleteFromNestedSets (nestedSets store) path of
         Nothing -> (store, (False, False))
         Just (sets, toggle) -> (store{nestedSets = sets}, (True, toggle))
-        
+
     {-
   when found $ do
     when (toggle && not (null path)) $ do
@@ -497,9 +502,9 @@ treeStoreChangeM (TreeStore model) path act = do
             Nothing -> (store, False)
             Just sets' -> (Store { nestedSets = sets' }, True)
     when found $ writeIORef (customStoreGetPrivate model) store'
---    let Just iter = fromPath c path
---    stamp <- customStoreGetStamp model
---    when found $ treeModelRowChanged model path (treeIterSetStamp iter stamp)
+    let Just iter = fromPath sets path
+    stamp <- customStoreGetStamp model
+    when found $ treeModelRowChanged model path (treeIterSetStamp iter stamp)
     return found
 
 -- | Change a node in the 'NestedSets'.
@@ -527,10 +532,13 @@ treeStoreGetValue :: TreeStore a -> TreePath -> IO a
 treeStoreGetValue (TreeStore model) path = do
     store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     return $ nestedSetValueByPath sets path
-    where nestedSetValueByPath a b = content $ nestedSetByPath a b
-          nestedSetByPath sets [] = undefined
-          nestedSetByPath sets (p:ds) = nestedSetChildrenByPath (sets!!p) ds
-          nestedSetChildrenByPath set ([]) = set
+    where nestedSetValueByPath sets path = content $ nestedSetByPath sets path
+
+
+nestedSetByPath :: NestedSets a -> TreePath -> NestedSetsNode a
+nestedSetByPath sets [] = undefined
+nestedSetByPath sets (p:ds) = nestedSetChildrenByPath (sets!!p) ds
+    where nestedSetChildrenByPath set ([]) = set
           nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath ((children set)!!p) ds
 
 
