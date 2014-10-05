@@ -282,13 +282,14 @@ treeStoreRemove (TreeStore model) path = do
         Nothing -> (store, (False, False))
         Just (sets, toggle) -> (store{nestedSets = sets}, (True, toggle))
 
-    {-
   when found $ do
     when (toggle && not (null path)) $ do
-      store <- readIORef (customStoreGetPrivate model)
+      Store{nestedSets = sets} <- readIORef (customStoreGetPrivate model)
       let parent = init path
-          Just iter = fromPath capacity parent
-      treeModelRowHasChildToggled model parent iter
+          Just iter = fromPath sets parent
+      stamp <- customStoreGetStamp model
+      treeModelRowHasChildToggled model parent (treeIterSetStamp iter stamp)
+    {-
     treeModelRowDeleted model path
     -}
   return found
