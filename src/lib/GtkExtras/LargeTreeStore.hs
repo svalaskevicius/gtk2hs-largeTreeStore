@@ -27,16 +27,16 @@ module GtkExtras.LargeTreeStore (
   treeStoreGetTree,
   ) where
 
-import Data.Tree
-import System.Glib.GObject
-import Graphics.UI.Gtk.ModelView.CustomStore
-import Graphics.UI.Gtk.ModelView.TreeModel
-import Graphics.UI.Gtk.ModelView.TreeDrag
+import Control.Monad                         (liftM, void, when)
+import Control.Monad.Trans                   (liftIO)
 import Data.IORef
-import Control.Monad.Trans ( liftIO )
 import Data.NestedSet
-import Foreign.C.Types (CInt(..))
-import Control.Monad (liftM, void, when )
+import Data.Tree
+import Foreign.C.Types                       (CInt (..))
+import Graphics.UI.Gtk.ModelView.CustomStore
+import Graphics.UI.Gtk.ModelView.TreeDrag
+import Graphics.UI.Gtk.ModelView.TreeModel
+import System.Glib.GObject
 -- | A store for hierarchical data.
 --
 newtype TreeStore a = TreeStore (CustomStore (IORef (Store a)) a)
@@ -89,18 +89,18 @@ treeStoreNewDND forest mDSource mDDest = do
     treeModelIfaceGetRow  = withStore . getIterValueInStore,
 
     treeModelIfaceIterNext = \iter -> withStore $
-        \Store { nestedSets = sets } -> 
+        \Store { nestedSets = sets } ->
             fmap positionToIter $ nestedSetsNextSiblingPosition sets . positionFromIter $ iter,
 
     treeModelIfaceIterChildren = maybe (return $ Just invalidIter)
         (\iter -> withStore $
-            \Store { nestedSets = sets } -> 
+            \Store { nestedSets = sets } ->
                 fmap positionToIter $ nestedSetsFirstChildPosition sets . positionFromIter $ iter),
 
     treeModelIfaceIterHasChild = \iter -> withStore $
         \Store { nestedSets = sets } -> not . null . children . nestedSetByPath sets . toPath sets $ iter,
 
-    treeModelIfaceIterNChildren = maybe 
+    treeModelIfaceIterNChildren = maybe
         (withStore $ \Store { nestedSets = sets } -> length sets)
         (\iter -> withStore $
             \Store { nestedSets = sets } -> length . children . nestedSetByPath sets . toPath sets $ iter),
@@ -112,7 +112,7 @@ treeStoreNewDND forest mDSource mDDest = do
         mIter,
 
     treeModelIfaceIterParent = \iter -> withStore $
-        \Store { nestedSets = sets } -> 
+        \Store { nestedSets = sets } ->
             fmap positionToIter $ nestedSetsParentPosition sets . positionFromIter $ iter,
 
     treeModelIfaceRefNode = \_ -> return (),

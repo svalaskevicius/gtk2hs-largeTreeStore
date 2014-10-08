@@ -1,12 +1,12 @@
 module GtkExtras.LargeTreeStoreSpec (main, spec) where
 
-import Test.Hspec
-import GtkExtras.LargeTreeStore as LTS
+import Control.Monad            (zipWithM_)
+import Data.IORef
+import Data.Maybe               (isNothing)
 import Data.Tree
 import Graphics.UI.Gtk
-import Data.IORef
-import Data.Maybe (isNothing)
-import Control.Monad (zipWithM_)
+import GtkExtras.LargeTreeStore as LTS
+import Test.Hspec
 
 main :: IO ()
 main = hspec spec
@@ -43,7 +43,7 @@ spec = describe "large tree store" $ do
         LTS.treeStoreInsertForest treeStore [0, 1] 0 [Node 99 [Node 100 []], Node 101 []]
         emittedEvents <- recorder
         pathIterEventsShouldBe treeStore emittedEvents [([0, 1, 1], 101), ([0, 1, 0, 0], 100), ([0, 1, 0], 99)]
-        
+
     it "notifies about toggled child on inserting the first child" $ do
         treeStore <- numberedTreeStore
         recorder <- recordChildToggledEvents treeStore
