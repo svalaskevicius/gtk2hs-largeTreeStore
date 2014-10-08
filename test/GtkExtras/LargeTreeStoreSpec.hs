@@ -6,6 +6,7 @@ import Data.Tree
 import Graphics.UI.Gtk
 import Data.IORef
 import Data.Maybe (isNothing)
+import Control.Monad (zipWithM_)
 
 main :: IO ()
 main = hspec spec
@@ -24,8 +25,7 @@ spec = describe "large tree store" $ do
         value `shouldBe` 'N'
 
     it "emits row changed event on setting a value on the tree store" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordRowChangedEvents treeStore
         LTS.treeStoreSetValue treeStore [0, 1, 0] 5
         emittedEvents <- recorder
@@ -38,24 +38,21 @@ spec = describe "large tree store" $ do
         value `shouldBe` 'x'
 
     it "notifies about inserted rows when inserting a forest" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordRowInsertedEvents treeStore
         LTS.treeStoreInsertForest treeStore [0, 1] 0 [Node 99 [Node 100 []], Node 101 []]
         emittedEvents <- recorder
         pathIterEventsShouldBe treeStore emittedEvents [([0, 1, 1], 101), ([0, 1, 0, 0], 100), ([0, 1, 0], 99)]
         
     it "notifies about toggled child on inserting the first child" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordChildToggledEvents treeStore
         LTS.treeStoreInsertForest treeStore [0, 0] 0 [Node 99 [Node 100 []], Node 101 []]
         emittedEvents <- recorder
         pathIterEventsShouldBe treeStore emittedEvents [([0, 0], 2)]
 
     it "does not notify about toggled child on inserting a subsequent child" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordChildToggledEvents treeStore
         LTS.treeStoreInsertForest treeStore [0, 1] 0 [Node 99 [Node 100 []], Node 101 []]
         emittedEvents <- recorder
@@ -75,15 +72,14 @@ spec = describe "large tree store" $ do
 
 
     it "notifies about toggled child on removing the last child" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordChildToggledEvents treeStore
         _ <- LTS.treeStoreRemove treeStore [0, 1, 0]
         emittedEvents <- recorder
         pathIterEventsShouldBe treeStore emittedEvents [([0, 1], 3)]
 
     it "notifies about a removed row" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
+        treeStore <- numberedTreeStore
         recorder <- recordRowDeletedEvents treeStore
         _ <- LTS.treeStoreRemove treeStore [0, 1, 0]
         emittedEvents <- recorder
@@ -91,8 +87,7 @@ spec = describe "large tree store" $ do
 
 
     it "does not notify about toggled child on removing not the last child" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         recorder <- recordChildToggledEvents treeStore
         _ <- LTS.treeStoreRemove treeStore [0, 0]
         emittedEvents <- recorder
@@ -105,61 +100,57 @@ spec = describe "large tree store" $ do
         (value `shouldBe` '-') `shouldThrow` anyErrorCall
 
     it "notifies about a removed top level rows when clearing store" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        treeStore <- numberedTreeStore
         recorder <- recordRowDeletedEvents treeStore
         _ <- LTS.treeStoreClear treeStore
         emittedEvents <- recorder
         emittedEvents `pathEventsShouldBe` [[0], [1]]
 
     it "can extract a subtree" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        treeStore <- numberedTreeStore
         tree <- LTS.treeStoreGetTree treeStore [0, 1]
         tree `shouldBe` Node 3 [Node 4 []]
 
     it "can be retrieve first value" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIterFirst treeStore
         value <- treeModelGetValue treeStore iter (makeColumnIdInt 0)
         value `shouldBe` 1
 
     it "can be retrieve iter path" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIter treeStore [0, 1, 0]
         path <- treeModelGetPath treeStore iter
         path `shouldBe` [0, 1, 0]
 
     it "can be iterated to next sibling" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIterFirst treeStore
         (Just sibling) <- treeModelIterNext treeStore iter
         value <- treeModelGetValue treeStore sibling (makeColumnIdInt 0)
         value `shouldBe` 5
 
     it "can be iterated to first child" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
-        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIterFirst treeStore
         (Just child) <- treeModelIterChildren treeStore iter
         value <- treeModelGetValue treeStore child (makeColumnIdInt 0)
         value `shouldBe` 2
 
     it "can check if iter has child when it doesn't" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIter treeStore [0, 1, 0]
         hasChild <- treeModelIterHasChild treeStore iter
         hasChild `shouldBe` False
 
     it "can check if iter has child when it does" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIter treeStore [0, 1]
         hasChild <- treeModelIterHasChild treeStore iter
         hasChild `shouldBe` True
 
     it "can check how many children does an iter have" $ do
-        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        treeStore <- numberedTreeStore
         (Just iter) <- treeModelGetIter treeStore [0, 1]
         nChildren <- treeModelIterNChildren treeStore $ Just iter
         nChildren `shouldBe` 1
@@ -225,8 +216,8 @@ recordRowDeletedEvents treeStore = do
 pathIterEventsShouldBe :: (TreeModelClass self, Show a, Eq a) =>
                           self -> [(a, TreeIter)] -> [(a, Int)] -> IO ()
 pathIterEventsShouldBe treeStore emittedEvents expectedValues = do
-    length emittedEvents `shouldBe` (length expectedValues)
-    sequence_ $ zipWith compareEvent emittedEvents expectedValues
+    length emittedEvents `shouldBe` length expectedValues
+    zipWithM_ compareEvent emittedEvents expectedValues
     where compareEvent (path, iter) (path', value') = do
             path `shouldBe` path'
             value <- treeModelGetValue treeStore iter (makeColumnIdInt 0)
@@ -234,8 +225,12 @@ pathIterEventsShouldBe treeStore emittedEvents expectedValues = do
 
 pathEventsShouldBe :: (Show a, Eq a) => [a] -> [a] -> IO ()
 pathEventsShouldBe emittedEvents expectedValues = do
-    length emittedEvents `shouldBe` (length expectedValues)
-    sequence_ $ zipWith compareEvent emittedEvents expectedValues
-    where compareEvent path path' = do
-            path `shouldBe` path'
+    length emittedEvents `shouldBe` length expectedValues
+    zipWithM_ compareEvent emittedEvents expectedValues
+    where compareEvent path path' = path `shouldBe` path'
 
+numberedTreeStore :: IO (LTS.TreeStore Int)
+numberedTreeStore = do
+    treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+    customStoreSetColumn treeStore (makeColumnIdInt 0) id
+    return treeStore

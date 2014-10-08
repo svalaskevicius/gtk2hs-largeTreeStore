@@ -35,9 +35,8 @@ import Graphics.UI.Gtk.ModelView.TreeDrag
 import Data.IORef
 import Control.Monad.Trans ( liftIO )
 import Data.NestedSet
-import Control.Monad ( when )
 import Foreign.C.Types (CInt(..))
-
+import Control.Monad (liftM, void, when )
 -- | A store for hierarchical data.
 --
 newtype TreeStore a = TreeStore (CustomStore (IORef (Store a)) a)
@@ -76,7 +75,7 @@ treeStoreNewDND forest mDSource mDDest = do
   storeRef <- newIORef Store {
       nestedSets = forestToNestedSets forest
   }
-  let withStore f = readIORef storeRef >>= return . f
+  let withStore f = liftM f $ readIORef storeRef
 
   customStoreNew storeRef TreeStore TreeModelIface {
     treeModelIfaceGetFlags = return [],
@@ -87,7 +86,7 @@ treeStoreNewDND forest mDSource mDDest = do
     treeModelIfaceGetPath = \iter -> withStore $
       \Store { nestedSets = sets } -> toPath sets iter,
 
-    treeModelIfaceGetRow  = \iter -> withStore $ getIterValueInStore iter,
+    treeModelIfaceGetRow  = withStore . getIterValueInStore,
 
     treeModelIfaceIterNext = \iter -> withStore $
         \Store { nestedSets = sets } -> 
@@ -99,17 +98,17 @@ treeStoreNewDND forest mDSource mDDest = do
                 fmap positionToIter $ nestedSetsFirstChildPosition sets . positionFromIter $ iter),
 
     treeModelIfaceIterHasChild = \iter -> withStore $
-        \Store { nestedSets = sets } -> not . null . children . (nestedSetByPath sets) . (toPath sets) $ iter,
+        \Store { nestedSets = sets } -> not . null . children . nestedSetByPath sets . toPath sets $ iter,
 
     treeModelIfaceIterNChildren = maybe 
         (withStore $ \Store { nestedSets = sets } -> length sets)
         (\iter -> withStore $
-            \Store { nestedSets = sets } -> length . children . (nestedSetByPath sets) . (toPath sets) $ iter),
+            \Store { nestedSets = sets } -> length . children . nestedSetByPath sets . toPath sets $ iter),
 
     treeModelIfaceIterNthChild = \mIter idx  -> maybe
         (withStore $ \Store { nestedSets = sets } -> fromPath sets [idx])
         (\iter -> withStore $
-            \Store { nestedSets = sets } -> (fromPath sets) ((toPath sets iter) ++ [idx]))
+            \Store { nestedSets = sets } -> fromPath sets (toPath sets iter ++ [idx]))
         mIter,
 
     treeModelIfaceIterParent = \iter -> withStore $
@@ -130,7 +129,7 @@ treeStoreDefaultDragSourceIface = DragSourceIface {
     treeDragSourceRowDraggable = \_ _-> return True,
     treeDragSourceDragDataGet = treeSetRowDragData,
     treeDragSourceDragDataDelete = \model dest@(_:_) -> do
-            liftIO $ treeStoreRemove model dest
+            _ <- liftIO $ treeStoreRemove model dest
             return True
 
   }
@@ -141,16 +140,16 @@ treeStoreDefaultDragSourceIface = DragSourceIface {
 -- that uses the same model.
 treeStoreDefaultDragDestIface :: DragDestIface TreeStore row
 treeStoreDefaultDragDestIface = DragDestIface {
-    treeDragDestRowDropPossible = \model dest -> do
+    treeDragDestRowDropPossible = \model _ -> do
       mModelPath <- treeGetRowDragData
       case mModelPath of
         Nothing -> return False
-        Just (model', source) -> return (toTreeModel model==toTreeModel model'),
+        Just (model', _) -> return (toTreeModel model==toTreeModel model'),
     treeDragDestDragDataReceived = \model dest@(_:_) -> do
       mModelPath <- treeGetRowDragData
       case mModelPath of
         Nothing -> return False
-        Just (model', source@(_:_)) ->
+        Just (model', source) ->
           if toTreeModel model /= toTreeModel model' then return False
           else liftIO $ do
             row <- treeStoreGetTree model source
@@ -165,10 +164,10 @@ invalidIter = TreeIter 0 0 0 0
 
 -- update the stamp of a tree iter
 treeIterSetStamp :: TreeIter -> CInt -> TreeIter
-treeIterSetStamp (TreeIter _ a b c) s = (TreeIter s a b c)
+treeIterSetStamp (TreeIter _ a b c) s = TreeIter s a b c
 
 positionFromIter :: TreeIter -> Position
-positionFromIter (TreeIter _ _ left right) = ((fromIntegral left), (fromIntegral right))
+positionFromIter (TreeIter _ _ left right) = (fromIntegral left, fromIntegral right)
 
 positionToIter :: Position -> TreeIter
 positionToIter = setPositionToIter invalidIter
@@ -183,17 +182,17 @@ toPath sets iter = positionToPath sets (positionFromIter iter) 0
     where positionToPath [] _ _ = []
           positionToPath (first : ds) pos nr
               | position first == pos = [nr]
-              | isNestedSetsPositionParent (position first) pos = nr:(positionToPath (children first) pos 0)
+              | isNestedSetsPositionParent (position first) pos = nr:positionToPath (children first) pos 0
               | otherwise = positionToPath ds pos (nr+1)
 
 -- | Try to convert a path into a 'TreeIter'.
 --
 fromPath :: NestedSets a -> TreePath -> Maybe TreeIter
-fromPath sets = Just . positionToIter . positionFromPath sets
-    where positionFromPath sets path = position $ nestedSetByPath sets path
+fromPath sets = Just . positionToIter . positionFromPath
+    where positionFromPath path = position $ nestedSetByPath sets path
 
 getIterValueInStore :: TreeIter -> Store a -> a
-getIterValueInStore iter (Store{nestedSets = sets}) = content . (nestedSetByPath sets) . toPath sets $ iter
+getIterValueInStore iter (Store{nestedSets = sets}) = content . nestedSetByPath sets . toPath sets $ iter
 
 -- | Insert nodes into the store.
 --
@@ -212,7 +211,7 @@ treeStoreInsertForest ::
 treeStoreInsertForest (TreeStore model) path pos nodes = do
     customStoreInvalidateIters model
     (idx, toggle) <- atomicModifyIORef (customStoreGetPrivate model) $
-        \store@Store { nestedSets = sets } ->
+        \Store { nestedSets = sets } ->
         case insertIntoForest (nestedSetsToForest sets) nodes path pos of
             Nothing -> error ("treeStoreInsertForest: path does not exist " ++ show path)
             Just (newForest, idx, toggle) -> (Store { nestedSets = forestToNestedSets newForest }, (idx, toggle))
@@ -229,8 +228,8 @@ treeStoreInsertForest (TreeStore model) path pos nodes = do
                   (treeIterSetStamp iter stamp)
 
     where paths :: TreePath -> Tree a -> [TreePath]
-          paths path Node { subForest = ts } =
-              path : concat [ paths (n:path) t | (n, t) <- zip [0..] ts ]
+          paths path' Node { subForest = ts } =
+              path' : concat [ paths (n:path') t | (n, t) <- zip [0..] ts ]
 
 -- | Insert a node into the store.
 --
@@ -270,14 +269,14 @@ insertIntoForest forest nodes [] pos
   | otherwise = Just (prev++nodes++next, length prev, null forest)
     where (prev, next) = splitAt pos forest
 insertIntoForest forest nodes (p:ps) pos = case splitAt p forest of
-  (prev, []) -> Nothing
+  (_, []) -> Nothing
   (prev, Node { rootLabel = val,
                 subForest = for}:next) ->
     case insertIntoForest for nodes ps pos of
       Nothing -> Nothing
-      Just (for, pos, toggle) -> Just (prev++Node { rootLabel = val,
-                                                    subForest = for }:next,
-                                       pos, toggle)
+      Just (for', pos', toggle) -> Just (prev++Node { rootLabel = val,
+                                                    subForest = for' }:next,
+                                         pos', toggle)
 
 -- | Remove a node from the store.
 --
@@ -319,20 +318,19 @@ treeStoreClear (TreeStore model) = do
 --   @True@ if deleting the node left the parent without any children.
 --
 deleteFromNestedSets :: NestedSets a -> TreePath -> Maybe (NestedSets a, Bool)
-deleteFromNestedSets sets [] = Nothing
+deleteFromNestedSets _ [] = Nothing
 deleteFromNestedSets sets (p:ps) = case splitAt p sets of
     (_, []) -> Nothing
     (prev, node@NestedSetsNode{children = subSets}:next) ->
         if null ps then Just (prev++next, null prev && null next) else
         case deleteFromNestedSets subSets ps of
             Nothing -> Nothing
-            Just (subSets, toggle) -> Just (prev++node{children=subSets}:next, toggle)
+            Just (subSets', toggle) -> Just (prev++node{children=subSets'}:next, toggle)
 
 -- | Set a node in the store.
 --
 treeStoreSetValue :: TreeStore a -> TreePath -> a -> IO ()
-treeStoreSetValue store path value = treeStoreChangeM store path (\_ -> return value)
-                                  >> return ()
+treeStoreSetValue store path value = void $ treeStoreChangeM store path (\_ -> return value)
 
 
 -- | Change a node in the store.
@@ -351,20 +349,20 @@ treeStoreChangeM :: TreeStore a -> TreePath -> (a -> IO a) -> IO Bool
 treeStoreChangeM (TreeStore model) path act = do
     customStoreInvalidateIters model
     store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
-    (store'@Store {  nestedSets = sets }, found) <- do
+    (store'@Store {  nestedSets = sets' }, found) <- do
         mRes <- changeNestedSets sets act path
         return $ case mRes of
             Nothing -> (store, False)
             Just sets' -> (Store { nestedSets = sets' }, True)
     when found $ writeIORef (customStoreGetPrivate model) store'
-    let Just iter = fromPath sets path
+    let Just iter = fromPath sets' path
     stamp <- customStoreGetStamp model
     when found $ treeModelRowChanged model path (treeIterSetStamp iter stamp)
     return found
 
 -- | Change a node in the 'NestedSets'.
 changeNestedSets :: NestedSets a -> (a -> IO a) -> TreePath -> IO (Maybe (NestedSets a))
-changeNestedSets sets act [] = return Nothing
+changeNestedSets _ _ [] = return Nothing
 changeNestedSets sets act (p:ps) = case splitAt p sets of
     (_, []) -> return Nothing
     (prev, node : next) -> do
@@ -377,7 +375,7 @@ changeNestedSets sets act (p:ps) = case splitAt p sets of
               subSets' <- changeNestedSets subSets act ps
               case subSets' of
                   Nothing -> return Nothing
-                  Just subSets -> return . Just $ node{children = subSets}
+                  Just subSets'' -> return . Just $ node{children = subSets''}
           mergeNode prev next node = prev ++ node : next
 
 
@@ -385,20 +383,19 @@ changeNestedSets sets act (p:ps) = case splitAt p sets of
 --   'TreePath' refers to a non-existent node.
 treeStoreGetValue :: TreeStore a -> TreePath -> IO a
 treeStoreGetValue (TreeStore model) path = do
-    store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     return $ nestedSetValueByPath sets path
-    where nestedSetValueByPath sets path = content $ nestedSetByPath sets path
+    where nestedSetValueByPath sets = content . nestedSetByPath sets
 
 treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
 treeStoreGetTree (TreeStore model) path = do
-    store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     return $ nestedSubtree (nestedSetByPath sets path)
     where nestedSubtree node = Node (content node) (map nestedSubtree $ children node)
 
 nestedSetByPath :: NestedSets a -> TreePath -> NestedSetsNode a
-nestedSetByPath sets [] = undefined
-nestedSetByPath sets (p:ds) = nestedSetChildrenByPath (sets!!p) ds
+nestedSetByPath _ [] = undefined
+nestedSetByPath sets (first:rest) = nestedSetChildrenByPath (sets!!first) rest
     where nestedSetChildrenByPath set ([]) = set
-          nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath ((children set)!!p) ds
-
+          nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath (children set !! p) ds
 
