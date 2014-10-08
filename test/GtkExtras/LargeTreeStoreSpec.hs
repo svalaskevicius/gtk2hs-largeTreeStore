@@ -110,6 +110,11 @@ spec = describe "large tree store" $ do
         emittedEvents <- recorder
         emittedEvents `pathEventsShouldBe` [[0], [1]]
 
+    it "can extract a subtree" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        tree <- LTS.treeStoreGetTree treeStore [0, 1]
+        tree `shouldBe` Node 3 [Node 4 []]
+
 recordRowChangedEvents :: TreeModelClass tm => tm -> IO (IO [(TreePath, TreeIter)])
 recordRowChangedEvents = recordPathIterEvents rowChanged
 

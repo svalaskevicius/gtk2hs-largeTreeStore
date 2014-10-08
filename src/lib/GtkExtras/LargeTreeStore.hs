@@ -23,6 +23,8 @@ module GtkExtras.LargeTreeStore (
 
   treeStoreRemove,
   treeStoreClear,
+
+  treeStoreGetTree,
   ) where
 
 import Data.Tree
@@ -134,8 +136,8 @@ treeStoreDefaultDragDestIface = DragDestIface {
         Just (model', source@(_:_)) ->
           if toTreeModel model /= toTreeModel model' then return False
           else liftIO $ do
---            row <- treeStoreGetTree model source
---            treeStoreInsertTree model (init dest) (last dest) row
+            row <- treeStoreGetTree model source
+            treeStoreInsertTree model (init dest) (last dest) row
             return True
   }
 
@@ -363,6 +365,11 @@ treeStoreGetValue (TreeStore model) path = do
     return $ nestedSetValueByPath sets path
     where nestedSetValueByPath sets path = content $ nestedSetByPath sets path
 
+treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
+treeStoreGetTree (TreeStore model) path = do
+    store@Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    return $ nestedSubtree (nestedSetByPath sets path)
+    where nestedSubtree node = Node (content node) (map nestedSubtree $ children node)
 
 nestedSetByPath :: NestedSets a -> TreePath -> NestedSetsNode a
 nestedSetByPath sets [] = undefined
