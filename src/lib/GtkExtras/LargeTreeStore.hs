@@ -1,3 +1,28 @@
+-- -*-haskell-*-
+--  GIMP Toolkit (GTK) CustomStore TreeModel
+--
+--  Author : Duncan Coutts, Axel Simon, Sarunas Valaskevicius
+--
+--  Copyright (C) 2014 Sarunas Valaskevicius
+--  Copyright (C) 2005 Duncan Coutts, Axel Simon
+--
+--  This library is free software; you can redistribute it and/or
+--  modify it under the terms of the GNU Lesser General Public
+--  License as published by the Free Software Foundation; either
+--  version 2.1 of the License, or (at your option) any later version.
+--
+--  This library is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+--  Lesser General Public License for more details.
+--
+-- |
+-- Maintainer  : rakatan@gmail.com
+-- Stability   : provisional
+-- Portability : portable (depends on GHC)
+--
+-- Standard model to store hierarchical data.
+--
 module GtkExtras.LargeTreeStore (
 -- * Types
   TreeStore,

@@ -2,7 +2,7 @@ name: gtk-largeTreeStore
 version: 0.0.1.0
 cabal-version: >=1.10
 build-type: Simple
-license: GPL-3
+license: LGPL-3
 license-file: LICENSE
 copyright: (c) Sarunas Valaskevicius
 maintainer: Sarunas Valaskevicius <rakatan@gmail.com>
