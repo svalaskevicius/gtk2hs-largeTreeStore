@@ -79,6 +79,13 @@ spec = describe "large tree store" $ do
         value <- LTS.treeStoreGetValue treeStore [0]
         (value `shouldBe` '-') `shouldThrow` anyErrorCall
 
+    it "notifies about a removed top level rows when clearing store" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        recorder <- recordRowDeletedEvents treeStore
+        _ <- LTS.treeStoreClear treeStore
+        emittedEvents <- recorder
+        emittedEvents `pathEventsShouldBe` [[0], [1]]
+
 recordRowChangedEvents :: TreeModelClass tm => tm -> IO (IO [(TreePath, TreeIter)])
 recordRowChangedEvents = recordPathIterEvents rowChanged
 

@@ -296,13 +296,13 @@ treeStoreRemove (TreeStore model) path = do
 treeStoreClear :: TreeStore a -> IO ()
 treeStoreClear (TreeStore model) = do
     customStoreInvalidateIters model
-    -- Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
+    Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     writeIORef (customStoreGetPrivate model) Store {
         nestedSets = forestToNestedSets []
         }
---    let loop (-1) = return ()
-  --      loop   n  = treeModelRowDeleted model [n] >> loop (n-1)
-    --loop (length forest - 1)
+    let loop (-1) = return ()
+        loop n  = treeModelRowDeleted model [n] >> loop (n-1)
+    loop (length sets - 1)
 
 -- | Remove a node from a rose tree.
 --
