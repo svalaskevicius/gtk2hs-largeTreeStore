@@ -5,6 +5,7 @@ import GtkExtras.LargeTreeStore as LTS
 import Data.Tree
 import Graphics.UI.Gtk
 import Data.IORef
+import Data.Maybe (isNothing)
 
 main :: IO ()
 main = hspec spec
@@ -114,6 +115,87 @@ spec = describe "large tree store" $ do
         treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
         tree <- LTS.treeStoreGetTree treeStore [0, 1]
         tree `shouldBe` Node 3 [Node 4 []]
+
+    it "can be retrieve first value" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        (Just iter) <- treeModelGetIterFirst treeStore
+        value <- treeModelGetValue treeStore iter (makeColumnIdInt 0)
+        value `shouldBe` 1
+
+    it "can be retrieve iter path" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        (Just iter) <- treeModelGetIter treeStore [0, 1, 0]
+        path <- treeModelGetPath treeStore iter
+        path `shouldBe` [0, 1, 0]
+
+    it "can be iterated to next sibling" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        (Just iter) <- treeModelGetIterFirst treeStore
+        (Just sibling) <- treeModelIterNext treeStore iter
+        value <- treeModelGetValue treeStore sibling (makeColumnIdInt 0)
+        value `shouldBe` 5
+
+    it "can be iterated to first child" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        (Just iter) <- treeModelGetIterFirst treeStore
+        (Just child) <- treeModelIterChildren treeStore iter
+        value <- treeModelGetValue treeStore child (makeColumnIdInt 0)
+        value `shouldBe` 2
+
+    it "can check if iter has child when it doesn't" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [0, 1, 0]
+        hasChild <- treeModelIterHasChild treeStore iter
+        hasChild `shouldBe` False
+
+    it "can check if iter has child when it does" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [0, 1]
+        hasChild <- treeModelIterHasChild treeStore iter
+        hasChild `shouldBe` True
+
+    it "can check how many children does an iter have" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [0, 1]
+        nChildren <- treeModelIterNChildren treeStore $ Just iter
+        nChildren `shouldBe` 1
+
+    it "can check how many children there are at the top level" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]], Node 5 []]::Forest Int)
+        nChildren <- treeModelIterNChildren treeStore Nothing
+        nChildren `shouldBe` 2
+
+    it "returns nth child" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [0, 1]
+        (Just child) <- treeModelIterNthChild treeStore (Just iter) 1
+        path <- treeModelGetPath treeStore child
+        path `shouldBe` [0, 1, 1]
+
+    it "returns nth root" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        (Just child) <- treeModelIterNthChild treeStore Nothing 1
+        path <- treeModelGetPath treeStore child
+        path `shouldBe` [1]
+
+    it "returns parent iter as Nothing if there is no parent" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [1]
+        mParent <- treeModelIterParent treeStore iter
+        isNothing mParent `shouldBe` True
+
+    it "returns parent iter if there is a parent node" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        (Just iter) <- treeModelGetIter treeStore [0, 1]
+        (Just parent) <- treeModelIterParent treeStore iter
+        path <- treeModelGetPath treeStore parent
+        path `shouldBe` [0]
+
+
 
 recordRowChangedEvents :: TreeModelClass tm => tm -> IO (IO [(TreePath, TreeIter)])
 recordRowChangedEvents = recordPathIterEvents rowChanged

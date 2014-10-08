@@ -81,23 +81,40 @@ treeStoreNewDND forest mDSource mDDest = do
   customStoreNew storeRef TreeStore TreeModelIface {
     treeModelIfaceGetFlags = return [],
 
-    treeModelIfaceGetIter = \path -> undefined,
+    treeModelIfaceGetIter = \path -> withStore $
+      \Store { nestedSets = sets } -> fromPath sets path,
 
-    treeModelIfaceGetPath = \iter -> undefined,
+    treeModelIfaceGetPath = \iter -> withStore $
+      \Store { nestedSets = sets } -> toPath sets iter,
 
     treeModelIfaceGetRow  = \iter -> withStore $ getIterValueInStore iter,
 
-    treeModelIfaceIterNext = \iter -> undefined,
+    treeModelIfaceIterNext = \iter -> withStore $
+        \Store { nestedSets = sets } -> 
+            fmap positionToIter $ nestedSetsNextSiblingPosition sets . positionFromIter $ iter,
 
-    treeModelIfaceIterChildren = \mIter -> undefined,
+    treeModelIfaceIterChildren = maybe (return $ Just invalidIter)
+        (\iter -> withStore $
+            \Store { nestedSets = sets } -> 
+                fmap positionToIter $ nestedSetsFirstChildPosition sets . positionFromIter $ iter),
 
-    treeModelIfaceIterHasChild = \iter -> undefined,
+    treeModelIfaceIterHasChild = \iter -> withStore $
+        \Store { nestedSets = sets } -> not . null . children . (nestedSetByPath sets) . (toPath sets) $ iter,
 
-    treeModelIfaceIterNChildren = \mIter -> undefined,
+    treeModelIfaceIterNChildren = maybe 
+        (withStore $ \Store { nestedSets = sets } -> length sets)
+        (\iter -> withStore $
+            \Store { nestedSets = sets } -> length . children . (nestedSetByPath sets) . (toPath sets) $ iter),
 
-    treeModelIfaceIterNthChild = \mIter idx  -> undefined,
+    treeModelIfaceIterNthChild = \mIter idx  -> maybe
+        (withStore $ \Store { nestedSets = sets } -> fromPath sets [idx])
+        (\iter -> withStore $
+            \Store { nestedSets = sets } -> (fromPath sets) ((toPath sets iter) ++ [idx]))
+        mIter,
 
-    treeModelIfaceIterParent = \iter -> undefined,
+    treeModelIfaceIterParent = \iter -> withStore $
+        \Store { nestedSets = sets } -> 
+            fmap positionToIter $ nestedSetsParentPosition sets . positionFromIter $ iter,
 
     treeModelIfaceRefNode = \_ -> return (),
     treeModelIfaceUnrefNode = \_ -> return ()
@@ -150,6 +167,15 @@ invalidIter = TreeIter 0 0 0 0
 treeIterSetStamp :: TreeIter -> CInt -> TreeIter
 treeIterSetStamp (TreeIter _ a b c) s = (TreeIter s a b c)
 
+positionFromIter :: TreeIter -> Position
+positionFromIter (TreeIter _ _ left right) = ((fromIntegral left), (fromIntegral right))
+
+positionToIter :: Position -> TreeIter
+positionToIter = setPositionToIter invalidIter
+
+setPositionToIter :: TreeIter -> Position -> TreeIter
+setPositionToIter (TreeIter stamp a _ _) (left, right) = TreeIter stamp a (fromIntegral left) (fromIntegral right)
+
 -- | Convert an iterator into a path.
 --
 toPath :: NestedSets a -> TreeIter -> TreePath
@@ -159,14 +185,12 @@ toPath sets iter = positionToPath sets (positionFromIter iter) 0
               | position first == pos = [nr]
               | isNestedSetsPositionParent (position first) pos = nr:(positionToPath (children first) pos 0)
               | otherwise = positionToPath ds pos (nr+1)
-          positionFromIter (TreeIter _ _ left right) = ((fromIntegral left), (fromIntegral right))
 
 -- | Try to convert a path into a 'TreeIter'.
 --
 fromPath :: NestedSets a -> TreePath -> Maybe TreeIter
-fromPath sets = Just . (setPositionToIter invalidIter) . positionFromPath sets
+fromPath sets = Just . positionToIter . positionFromPath sets
     where positionFromPath sets path = position $ nestedSetByPath sets path
-          setPositionToIter (TreeIter stamp a _ _) (left, right) = TreeIter stamp a (fromIntegral left) (fromIntegral right)
 
 getIterValueInStore :: TreeIter -> Store a -> a
 getIterValueInStore iter (Store{nestedSets = sets}) = content . (nestedSetByPath sets) . toPath sets $ iter
