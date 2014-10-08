@@ -36,6 +36,30 @@ spec = describe "large tree store" $ do
         value <- LTS.treeStoreGetValue treeStore [0, 1, 0]
         value `shouldBe` 'x'
 
+    it "notifies about inserted rows when inserting a forest" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        recorder <- recordRowInsertedEvents treeStore
+        LTS.treeStoreInsertForest treeStore [0, 1] 0 [Node 99 [Node 100 []], Node 101 []]
+        emittedEvents <- recorder
+        pathIterEventsShouldBe treeStore emittedEvents [([0, 1, 1], 101), ([0, 1, 0, 0], 100), ([0, 1, 0], 99)]
+        
+    it "notifies about toggled child on inserting the first child" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        recorder <- recordChildToggledEvents treeStore
+        LTS.treeStoreInsertForest treeStore [0, 0] 0 [Node 99 [Node 100 []], Node 101 []]
+        emittedEvents <- recorder
+        pathIterEventsShouldBe treeStore emittedEvents [([0, 0], 2)]
+
+    it "does not notify about toggled child on inserting a subsequent child" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
+        customStoreSetColumn treeStore (makeColumnIdInt 0) id
+        recorder <- recordChildToggledEvents treeStore
+        LTS.treeStoreInsertForest treeStore [0, 1] 0 [Node 99 [Node 100 []], Node 101 []]
+        emittedEvents <- recorder
+        pathIterEventsShouldBe treeStore emittedEvents []
+
     it "ignores removing an empty path" $ do
         treeStore <- LTS.treeStoreNew [Node 'a' [Node 'b' [], Node 'c' [Node 'V' []]]]
         removed <- LTS.treeStoreRemove treeStore []
@@ -91,6 +115,9 @@ recordRowChangedEvents = recordPathIterEvents rowChanged
 
 recordChildToggledEvents :: TreeModelClass tm => tm -> IO (IO [(TreePath, TreeIter)])
 recordChildToggledEvents = recordPathIterEvents rowHasChildToggled
+
+recordRowInsertedEvents :: TreeModelClass tm => tm -> IO (IO [(TreePath, TreeIter)])
+recordRowInsertedEvents = recordPathIterEvents rowInserted
 
 recordPathIterEvents :: TreeModelClass tm => Signal tm (TreePath -> TreeIter -> IO ()) -> tm -> IO (IO [(TreePath, TreeIter)])
 recordPathIterEvents event treeStore = do

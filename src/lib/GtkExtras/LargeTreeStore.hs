@@ -147,7 +147,7 @@ treeStoreDefaultDragDestIface = DragDestIface {
       case mModelPath of
         Nothing -> return False
         Just (model', source@(_:_)) ->
-          if toTreeModel model/=toTreeModel model' then return False
+          if toTreeModel model /= toTreeModel model' then return False
           else liftIO $ do
 --            row <- treeStoreGetTree model source
 --            treeStoreInsertTree model (init dest) (last dest) row
@@ -205,24 +205,22 @@ treeStoreInsertForest (TreeStore model) path pos nodes = do
         case insertIntoForest (nestedSetsToForest sets) nodes path pos of
             Nothing -> error ("treeStoreInsertForest: path does not exist " ++ show path)
             Just (newForest, idx, toggle) -> (Store { nestedSets = forestToNestedSets newForest }, (idx, toggle))
-    return ()
-{-
-    Store { capacity = capacity } <- readIORef (customStoreGetPrivate model)
+    Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     let rpath = reverse path
     stamp <- customStoreGetStamp model
     sequence_ [ let p' = reverse p
-                    Just iter = fromPath capacity p'
+                    Just iter = fromPath sets p'
                 in treeModelRowInserted model p' (treeIterSetStamp iter stamp)
               | (i, node) <- zip [idx..] nodes
               , p <- paths (i : rpath) node ]
-    let Just iter = fromPath capacity path
+    let Just iter = fromPath sets path
     when toggle $ treeModelRowHasChildToggled model path
                   (treeIterSetStamp iter stamp)
 
     where paths :: TreePath -> Tree a -> [TreePath]
           paths path Node { subForest = ts } =
               path : concat [ paths (n:path) t | (n, t) <- zip [0..] ts ]
--}
+
 -- | Insert a node into the store.
 --
 treeStoreInsertTree ::
