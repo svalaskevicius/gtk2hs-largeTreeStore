@@ -51,21 +51,6 @@ data Store a = Store {
     nestedSets :: NestedSets a
 }
 
-{-
-import Data.Bits
-import Data.Maybe ( fromMaybe, isJust )
-import Control.Monad ( liftM, when )
-import Control.Exception (assert)
--- import Graphics.UI.Gtk.ModelView.Types
--- import Graphics.UI.Gtk.Types (GObjectClass(..), TreeModelClass)
-
---------------------------------------------
--- internal model data types
---
-
-
-
--}
 -- | Create a new list store.
 --
 -- * The given rose tree determines the initial content and may be the empty
