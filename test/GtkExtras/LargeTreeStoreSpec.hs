@@ -57,6 +57,14 @@ spec = describe "large tree store" $ do
         emittedEvents <- recorder
         pathIterEventsShouldBe treeStore emittedEvents [([0, 1], 3)]
 
+    it "notifies about a removed row" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
+        recorder <- recordRowDeletedEvents treeStore
+        _ <- LTS.treeStoreRemove treeStore [0, 1, 0]
+        emittedEvents <- recorder
+        emittedEvents `pathEventsShouldBe` [[0, 1, 0]]
+
+
     it "does not notify about toggled child on removing not the last child" $ do
         treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 []]]]::Forest Int)
         customStoreSetColumn treeStore (makeColumnIdInt 0) id
@@ -85,6 +93,13 @@ recordPathIterEvents event treeStore = do
         writeIORef recorder $ (path, iter):prevItems
     return (readIORef recorder)
 
+recordRowDeletedEvents :: TreeModelClass tm => tm -> IO (IO [TreePath])
+recordRowDeletedEvents treeStore = do
+    recorder <- newIORef []
+    _ <- treeStore `on` rowDeleted $ \path  -> do
+        prevItems <- readIORef recorder
+        writeIORef recorder $ path:prevItems
+    return (readIORef recorder)
 
 pathIterEventsShouldBe :: (TreeModelClass self, Show a, Eq a) =>
                           self -> [(a, TreeIter)] -> [(a, Int)] -> IO ()
@@ -95,4 +110,11 @@ pathIterEventsShouldBe treeStore emittedEvents expectedValues = do
             path `shouldBe` path'
             value <- treeModelGetValue treeStore iter (makeColumnIdInt 0)
             value `shouldBe` value'
+
+pathEventsShouldBe :: (Show a, Eq a) => [a] -> [a] -> IO ()
+pathEventsShouldBe emittedEvents expectedValues = do
+    length emittedEvents `shouldBe` (length expectedValues)
+    sequence_ $ zipWith compareEvent emittedEvents expectedValues
+    where compareEvent path path' = do
+            path `shouldBe` path'
 

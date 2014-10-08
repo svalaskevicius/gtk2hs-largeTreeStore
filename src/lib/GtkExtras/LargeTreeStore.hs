@@ -289,9 +289,7 @@ treeStoreRemove (TreeStore model) path = do
           Just iter = fromPath sets parent
       stamp <- customStoreGetStamp model
       treeModelRowHasChildToggled model parent (treeIterSetStamp iter stamp)
-    {-
     treeModelRowDeleted model path
-    -}
   return found
 
 
