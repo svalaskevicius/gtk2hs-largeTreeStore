@@ -54,7 +54,9 @@ module GtkExtras.LargeTreeStore (
 
 import Control.Monad                         (liftM, void, when)
 import Control.Monad.Trans                   (liftIO)
+import Data.Functor                          ((<$>))
 import Data.IORef
+import Data.Maybe                            (fromJust)
 import Data.NestedSet
 import Data.Tree
 import Foreign.C.Types                       (CInt (..))
@@ -62,6 +64,7 @@ import Graphics.UI.Gtk.ModelView.CustomStore
 import Graphics.UI.Gtk.ModelView.TreeDrag
 import Graphics.UI.Gtk.ModelView.TreeModel
 import System.Glib.GObject
+
 -- | A store for hierarchical data.
 --
 newtype TreeStore a = TreeStore (CustomStore (IORef (Store a)) a)
@@ -123,12 +126,12 @@ treeStoreNewDND forest mDSource mDDest = do
                 fmap positionToIter $ nestedSetsFirstChildPosition sets . positionFromIter $ iter),
 
     treeModelIfaceIterHasChild = \iter -> withStore $
-        \Store { nestedSets = sets } -> not . null . children . nestedSetByPath sets . toPath sets $ iter,
+        \Store { nestedSets = sets } -> not . null . children . fromJust . nestedSetByPath sets . toPath sets $ iter,
 
     treeModelIfaceIterNChildren = maybe
         (withStore $ \Store { nestedSets = sets } -> length sets)
         (\iter -> withStore $
-            \Store { nestedSets = sets } -> length . children . nestedSetByPath sets . toPath sets $ iter),
+            \Store { nestedSets = sets } -> length . children . fromJust . nestedSetByPath sets . toPath sets $ iter),
 
     treeModelIfaceIterNthChild = \mIter idx  -> maybe
         (withStore $ \Store { nestedSets = sets } -> fromPath sets [idx])
@@ -213,11 +216,11 @@ toPath sets iter = positionToPath sets (positionFromIter iter) 0
 -- | Try to convert a path into a 'TreeIter'.
 --
 fromPath :: NestedSets a -> TreePath -> Maybe TreeIter
-fromPath sets = Just . positionToIter . positionFromPath
-    where positionFromPath path = position $ nestedSetByPath sets path
+fromPath sets path = positionToIter <$> positionFromPath
+    where positionFromPath = position <$> nestedSetByPath sets path
 
 getIterValueInStore :: TreeIter -> Store a -> a
-getIterValueInStore iter (Store{nestedSets = sets}) = content . nestedSetByPath sets . toPath sets $ iter
+getIterValueInStore iter (Store{nestedSets = sets}) = content . fromJust . nestedSetByPath sets . toPath sets $ iter
 
 -- | Insert nodes into the store.
 --
@@ -248,13 +251,13 @@ treeStoreInsertForest (TreeStore model) path pos nodes = do
                 in treeModelRowInserted model p' (treeIterSetStamp iter stamp)
               | (i, node) <- zip [idx..] nodes
               , p <- paths (i : rpath) node ]
-    let Just iter = fromPath sets path
-    when toggle $ treeModelRowHasChildToggled model path
-                  (treeIterSetStamp iter stamp)
+    when toggle $ emitRowChildToggledEvent stamp $ fromPath sets path
 
     where paths :: TreePath -> Tree a -> [TreePath]
           paths path' Node { subForest = ts } =
               path' : concat [ paths (n:path') t | (n, t) <- zip [0..] ts ]
+          emitRowChildToggledEvent _ Nothing = return()
+          emitRowChildToggledEvent stamp (Just iter) = treeModelRowHasChildToggled model path (treeIterSetStamp iter stamp)
 
 -- | Insert a node into the store.
 --
@@ -410,17 +413,22 @@ treeStoreGetValue :: TreeStore a -> TreePath -> IO a
 treeStoreGetValue (TreeStore model) path = do
     Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
     return $ nestedSetValueByPath sets path
-    where nestedSetValueByPath sets = content . nestedSetByPath sets
+    where nestedSetValueByPath sets = content . fromJust . nestedSetByPath sets
 
 treeStoreGetTree :: TreeStore a -> TreePath -> IO (Tree a)
 treeStoreGetTree (TreeStore model) path = do
     Store { nestedSets = sets } <- readIORef (customStoreGetPrivate model)
-    return $ nestedSubtree (nestedSetByPath sets path)
+    return $ nestedSubtree . fromJust . nestedSetByPath sets $ path
     where nestedSubtree node = Node (content node) (map nestedSubtree $ children node)
 
-nestedSetByPath :: NestedSets a -> TreePath -> NestedSetsNode a
-nestedSetByPath _ [] = undefined
-nestedSetByPath sets (first:rest) = nestedSetChildrenByPath (sets!!first) rest
-    where nestedSetChildrenByPath set ([]) = set
-          nestedSetChildrenByPath set (p:ds) = nestedSetChildrenByPath (children set !! p) ds
+nestedSetByPath :: NestedSets a -> TreePath -> Maybe (NestedSetsNode a)
+nestedSetByPath _ [] = Nothing
+nestedSetByPath sets (first:rest) = (sets `maybeNth` first) >>= (`nestedSetChildrenByPath` rest)
+    where nestedSetChildrenByPath set ([]) = Just set
+          nestedSetChildrenByPath set (p:ds) = (children set `maybeNth` p) >>= (`nestedSetChildrenByPath` ds)
+
+maybeNth :: [a] -> Int -> Maybe a
+maybeNth [] _ = Nothing
+maybeNth (r:_) 0 = Just r
+maybeNth (_:rs) n = maybeNth rs (n-1)
 

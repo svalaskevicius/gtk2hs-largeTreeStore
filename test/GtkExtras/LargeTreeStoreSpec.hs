@@ -167,6 +167,16 @@ spec = describe "large tree store" $ do
         path <- treeModelGetPath treeStore child
         path `shouldBe` [0, 1, 1]
 
+    it "returns Nothing on empty path" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        mIter <- treeModelGetIter treeStore []
+        isNothing mIter `shouldBe` True
+
+    it "returns Nothing on out-of-band path" $ do
+        treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
+        mIter <- treeModelGetIter treeStore [99, 10111]
+        isNothing mIter `shouldBe` True
+
     it "returns nth root" $ do
         treeStore <- LTS.treeStoreNew ([Node 1 [Node 2 [], Node 3 [Node 4 [], Node 6 []]], Node 5 []]::Forest Int)
         (Just child) <- treeModelIterNthChild treeStore Nothing 1
